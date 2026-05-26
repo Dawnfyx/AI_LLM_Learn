@@ -2,6 +2,7 @@ node_modules/
 uploads/
 dist/
 .idea/
+/.idea/
 .env
 *.log
 .DS_Store
