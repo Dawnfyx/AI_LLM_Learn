@@ -1,0 +1,13 @@
+{
+  "name": "ch01-first-api-call",
+  "type": "module",
+  "scripts": {
+    "fetch": "node nodejs-fetch.js",
+    "langchain": "node langchain-basic.js"
+  },
+  "dependencies": {
+    "@langchain/core": "^0.3.0",
+    "@langchain/openai": "^0.3.0",
+    "dotenv": "^16.4.5"
+  }
+}

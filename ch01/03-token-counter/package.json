@@ -1,0 +1,11 @@
+{
+  "name": "ch01-token-counter",
+  "type": "module",
+  "scripts": {
+    "counter": "node counter.js",
+    "estimator": "node cost-estimator.js"
+  },
+  "dependencies": {
+    "dotenv": "^16.4.5"
+  }
+}
