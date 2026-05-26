@@ -1,0 +1,1 @@
+{"name":"ch11-monitor","type":"module","scripts":{"start":"node index.js"},"dependencies":{"@langchain/openai":"^0.3.0","dotenv":"^16.4.5","express":"^4.19.2"}}

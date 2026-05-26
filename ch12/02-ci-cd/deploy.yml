@@ -1,0 +1,157 @@
+# 02-ci-cd/.github/workflows/deploy.yml
+# GitHub Actions：代码推送后自动测试、构建、部署
+
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}/ai-app
+
+jobs:
+  # ── 单元测试 ────────────────────────────────────────────────
+  test:
+    name: Run Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run unit tests
+        run: npm test
+        env:
+          # 测试环境用 mock key，不消耗真实配额
+          DEEPSEEK_API_KEY: test-mock-key
+          NODE_ENV: test
+
+      - name: Check code coverage
+        run: npm run test:coverage
+
+  # ── 代码检查 ────────────────────────────────────────────────
+  lint:
+    name: Lint & Type Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: '20', cache: 'npm' }
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run type-check
+
+  # ── 构建 Docker 镜像 ────────────────────────────────────────
+  build:
+    name: Build Docker Image
+    runs-on: ubuntu-latest
+    needs: [test, lint]  # 测试和检查通过后才构建
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Log in to Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=ref,event=branch
+            type=ref,event=pr
+            type=sha,prefix={{branch}}-
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          # 缓存加速构建
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  # ── 部署到测试环境 ───────────────────────────────────────────
+  deploy-staging:
+    name: Deploy to Staging
+    runs-on: ubuntu-latest
+    needs: [build]
+    if: github.ref == 'refs/heads/develop'
+    environment:
+      name: staging
+      url: https://staging.yourdomain.com
+
+    steps:
+      - name: Deploy to staging server
+        uses: appleboy/ssh-action@master
+        with:
+          host: ${{ secrets.STAGING_HOST }}
+          username: ${{ secrets.STAGING_USER }}
+          key: ${{ secrets.STAGING_SSH_KEY }}
+          script: |
+            cd /opt/ai-app
+            # 拉取最新镜像
+            docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:develop
+            # 零停机更新
+            docker-compose up -d --no-deps app
+            # 等待健康检查
+            sleep 10
+            curl -f http://localhost:3000/health/ready || exit 1
+            echo "Staging deployment successful"
+
+  # ── 部署到生产环境 ───────────────────────────────────────────
+  deploy-production:
+    name: Deploy to Production
+    runs-on: ubuntu-latest
+    needs: [build]
+    if: github.ref == 'refs/heads/main'
+    environment:
+      name: production
+      url: https://yourdomain.com
+
+    steps:
+      - name: Deploy to production
+        uses: appleboy/ssh-action@master
+        with:
+          host: ${{ secrets.PROD_HOST }}
+          username: ${{ secrets.PROD_USER }}
+          key: ${{ secrets.PROD_SSH_KEY }}
+          script: |
+            cd /opt/ai-app
+            # 备份当前版本
+            docker tag ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:main \
+              ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:rollback
+            # 拉取新版本
+            docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:main
+            # 蓝绿部署：启动新容器，健康检查通过后切流量
+            docker-compose up -d --no-deps --scale app=2 app
+            sleep 15
+            curl -f https://yourdomain.com/health/ready || {
+              echo "Health check failed, rolling back..."
+              docker-compose up -d --no-deps app
+              exit 1
+            }
+            # 缩减到正常数量
+            docker-compose up -d --no-deps --scale app=1 app
+            echo "Production deployment successful"
