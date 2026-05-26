@@ -1,0 +1,7 @@
+node_modules/
+uploads/
+dist/
+.idea/
+.env
+*.log
+.DS_Store
