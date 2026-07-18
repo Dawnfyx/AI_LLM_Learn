@@ -6,8 +6,12 @@ import { HumanMessage, SystemMessage } from '@langchain/core/messages'
 const model = new ChatOpenAI({
   model: 'deepseek-v4-flash',
   apiKey: process.env.DEEPSEEK_API_KEY,
-  baseURL: process.env.DEEPSEEK_API_URL,
   temperature: 0.7,
+  timeout: 60000,
+  maxRetries: 3,
+  configuration: {
+    baseURL: process.env.DEEPSEEK_API_URL
+  }
 })
 
 const res = await model.invoke([
